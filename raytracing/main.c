@@ -14,6 +14,27 @@
 #include <string.h>
 #include <scenes/rt_scenes.h>
 #include <assert.h>
+#include <pthread.h>
+#include <math.h>
+
+#define IMAGE_WIDTH 300
+#define ASPECT_RATIO 1.5f // 3.0 / 2.0
+#define IMAGE_HEIGHT 200  // IMAGE_WIDTH / ASPECT_RATIO
+#define CHILD_RAYS 50
+#define N_THREADS 32
+
+pthread_mutex_t threads_mutex[N_THREADS];
+pthread_t threads[N_THREADS];
+
+long number_of_samples = 1000;
+int BLOCK_SIZE_THREAD;
+rt_camera_t *camera;
+rt_hittable_list_t *world;
+rt_skybox_t *skybox;
+int child_rays;
+FILE *out_file;
+
+void *get_image_pixels();
 
 static void show_usage(const char *program_name, int err);
 
@@ -42,6 +63,8 @@ static colour_t ray_colour(const ray_t *ray, const rt_hittable_list_t *list, rt_
 
 int main(int argc, char const *argv[])
 {
+    BLOCK_SIZE_THREAD = (int)floor((IMAGE_HEIGHT / N_THREADS));
+    out_file = stdout;
     const char *number_of_samples_str = NULL;
     const char *scene_id_str = NULL;
     const char *file_name = NULL;
@@ -100,7 +123,6 @@ int main(int argc, char const *argv[])
     }
 
     // Parse resulting parameters
-    long number_of_samples = 1000;
     if (NULL != number_of_samples_str)
     {
         char *end_ptr = NULL;
@@ -130,20 +152,14 @@ int main(int argc, char const *argv[])
         fprintf(stderr, "\t- file_name:         %s\n", file_name);
     }
 
-    // Image parameters
-    const double ASPECT_RATIO = 3.0 / 2.0;
-    const int IMAGE_WIDTH = 300;
-    const int IMAGE_HEIGHT = (int)(IMAGE_WIDTH / ASPECT_RATIO);
-    const int CHILD_RAYS = 50;
-
     // Declare Camera parameters
     point3_t look_from, look_at;
     vec3_t up = point3(0, 1, 0);
     double focus_distance = 10.0, aperture = 0.0, vertical_fov = 40.0;
 
     // World
-    rt_hittable_list_t *world = NULL;
-    rt_skybox_t *skybox = NULL;
+    world = NULL;
+    skybox = NULL;
 
     // Select a scene from a pre-defined one
     switch (scene_id)
@@ -240,10 +256,8 @@ int main(int argc, char const *argv[])
             return EXIT_FAILURE;
     }
 
-    rt_camera_t *camera =
-        rt_camera_new(look_from, look_at, up, vertical_fov, ASPECT_RATIO, aperture, focus_distance, 0.0, 1.0);
+    camera = rt_camera_new(look_from, look_at, up, vertical_fov, ASPECT_RATIO, aperture, focus_distance, 0.0, 1.0);
 
-    FILE *out_file = stdout;
     if (NULL != file_name)
     {
         out_file = fopen(file_name, "w");
@@ -254,26 +268,25 @@ int main(int argc, char const *argv[])
         }
     }
 
+    // initialize threads
+    for (int i = 0; i < N_THREADS; i++)
+    {
+        pthread_mutex_init(&threads_mutex[i], NULL);
+        if (i != 0)
+            pthread_mutex_lock(&threads_mutex[i]);
+    }
+
     // Render
     fprintf(out_file, "P3\n%d %d\n255\n", IMAGE_WIDTH, IMAGE_HEIGHT);
-    for (int j = IMAGE_HEIGHT - 1; j >= 0; --j)
+    for (int i = 0; i < N_THREADS; i++)
     {
-        fprintf(stderr, "\rScanlines remaining: %d", j);
-        fflush(stderr);
-        for (int i = 0; i < IMAGE_WIDTH; ++i)
-        {
-            colour_t pixel = colour(0, 0, 0);
-            for (int s = 0; s < number_of_samples; ++s)
-            {
-                double u = (double)(i + rt_random_double(0, 1)) / (IMAGE_WIDTH - 1);
-                double v = (double)(j + rt_random_double(0, 1)) / (IMAGE_HEIGHT - 1);
-
-                ray_t ray = rt_camera_get_ray(camera, u, v);
-                vec3_add(&pixel, ray_colour(&ray, world, skybox, CHILD_RAYS));
-            }
-            rt_write_colour(out_file, pixel, number_of_samples);
-        }
+        pthread_create(&threads[i], NULL, get_image_pixels, (void *)i);
     }
+    for (int i = 0; i < N_THREADS; i++)
+    {
+        pthread_join(threads[i], NULL);
+    }
+
     fprintf(stderr, "\nDone\n");
 cleanup:
     // Cleanup
@@ -290,13 +303,69 @@ static void show_usage(const char *program_name, int err)
     fprintf(stderr, "%s [-s|--samples N] [--scene SCENE] [-v|--verbose] [output_file_name]\n", program_name);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "\t-s | --samples      <int>       Number of rays to cast for each pixel\n");
-    fprintf(stderr, "\t--scene             <string>    ID of the scene to render. List of available scenes is printed below.\n");
+    fprintf(
+        stderr,
+        "\t--scene             <string>    ID of the scene to render. List of available scenes is printed below.\n");
     fprintf(stderr, "\t-v | --verbose                  Enable verbose output\n");
     fprintf(stderr, "\t-h                              Show this message and exit\n");
     fprintf(stderr, "Positional arguments:\n");
-    fprintf(stderr, "\toutput_file_name                Name of the output file. Outputs image to console if not specified.\n");
+    fprintf(stderr,
+            "\toutput_file_name                Name of the output file. Outputs image to console if not specified.\n");
     fprintf(stderr, "Available scenes:\n");
     rt_scene_print_scenes_info(stderr);
 
     exit(err);
+}
+
+void *get_image_pixels(void *thread_number)
+{
+    int thread_num = (int)thread_number;
+    int height_start = (int)floor((N_THREADS - (thread_num + 1)) * BLOCK_SIZE_THREAD);
+    int height_end = (int)floor(((N_THREADS - thread_num) * BLOCK_SIZE_THREAD) - 1);
+    if (thread_num == 0)
+    {
+        height_end = (IMAGE_HEIGHT - 1);
+    }
+    int local_pixels_size = ((height_end - height_start) + 1) * IMAGE_WIDTH;
+    colour_t local_pixels[local_pixels_size];
+    fprintf(stderr, "Thread number %d \t height_start, height_end %d, %d started to process\n", thread_num,
+            height_start, height_end);
+    int local_pixels_index = 0;
+    for (int j = height_end; j >= height_start; --j)
+    {
+        // fprintf(stderr, "\rScanlines remaining: %d", j);
+        fflush(stderr);
+        for (int i = 0; i < IMAGE_WIDTH; ++i)
+        {
+            colour_t pixel = colour(0, 0, 0);
+            for (int s = 0; s < number_of_samples; ++s)
+            {
+                double u = (double)(i + rt_random_double(0, 1)) / (IMAGE_WIDTH - 1);
+                double v = (double)(j + rt_random_double(0, 1)) / (IMAGE_HEIGHT - 1);
+
+                ray_t ray = rt_camera_get_ray(camera, u, v);
+                vec3_add(&pixel, ray_colour(&ray, world, skybox, CHILD_RAYS));
+            }
+
+            local_pixels[local_pixels_index] = pixel;
+            local_pixels_index++;
+        }
+    }
+    fprintf(stderr, "Thread number %d \t height_start, height_end %d, %d end processing\n", thread_num, height_start,
+            height_end);
+
+    pthread_mutex_lock(&threads_mutex[thread_num]);
+    fprintf(stderr, "Thread number %d \t start to write \n", thread_num);
+    for (int i = 0; i < local_pixels_index; i++)
+    {
+        rt_write_colour(out_file, local_pixels[i], number_of_samples);
+    }
+    fprintf(stderr, "Thread number %d \t end to write \n", thread_num);
+
+    if (thread_num != (N_THREADS - 1))
+    {
+        fprintf(stderr, "Thread number %d \t releasing thread %d \n", thread_num, thread_num + 1);
+        pthread_mutex_unlock(&threads_mutex[thread_num + 1]);
+    }
+    pthread_exit(NULL);
 }
