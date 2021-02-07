@@ -25,7 +25,7 @@ void rt_write_colour(int *buffer, int offset, colour_t pixel_colour, size_t samp
     g = sqrt(scale * g);
     b = sqrt(scale * b);
 
-    buffer[offset * 3 + 0] = RT_MAKE_COLOUR_COMPONENT(r);
-    buffer[offset * 3 + 1] = RT_MAKE_COLOUR_COMPONENT(g);
-    buffer[offset * 3 + 2] = RT_MAKE_COLOUR_COMPONENT(b);
+    buffer[(offset * 3) + 0] = RT_MAKE_COLOUR_COMPONENT(r);
+    buffer[(offset * 3) + 1] = RT_MAKE_COLOUR_COMPONENT(g);
+    buffer[(offset * 3) + 2] = RT_MAKE_COLOUR_COMPONENT(b);
 }

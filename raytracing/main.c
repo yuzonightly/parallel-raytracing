@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  * mpicc test.c -o output && mpirun -np 4 output
  */
-
+// 44922 160 177 194
 #include <stdio.h>
 
 #include "hittables/rt_hittable_list.h"
@@ -42,7 +42,7 @@ static colour_t ray_colour(const ray_t *ray, const rt_hittable_list_t *list, rt_
     return emitted;
 }
 
-int main(int argc, char const *argv[])
+int main(int argc, char *argv[])
 {
 
     // MPI
@@ -64,7 +64,6 @@ int main(int argc, char const *argv[])
 
     // Parameters
     long number_of_samples;
-    rt_camera_t *camera;
     // World
     rt_hittable_list_t *world = NULL;
     rt_skybox_t *skybox = NULL;
@@ -262,29 +261,28 @@ int main(int argc, char const *argv[])
 
     int *range, *slices;
     int total_image_size = IMAGE_HEIGHT * IMAGE_WIDTH;
+    // Used in MPI_Gatherv
     int *rcvcounts;
+    rcvcounts = (int *)(malloc(SIZE_OF_CLUSTER * sizeof(int)));
+    // Used in MPI_Gatherv
     int *displays;
+    displays = (int *)(malloc(SIZE_OF_CLUSTER * sizeof(int)));
     if (PROCESS_RANK == ROOT)
     {
         int slice = total_image_size / SIZE_OF_CLUSTER;
         // We use remainder to better distribute the ranges
         int remainder = total_image_size % SIZE_OF_CLUSTER;
 
-        // Used in MPI_Gatherv
-        rcvcounts = (int *)(malloc(SIZE_OF_CLUSTER * sizeof(int)));
-        // Used in MPI_Gatherv
-        displays = (int *)(malloc(SIZE_OF_CLUSTER * sizeof(int)));
-
         // Create array with ranges.
         slices = (int *)malloc((2 * SIZE_OF_CLUSTER) * sizeof(int));
         int current = 0;
         for (int i = 0; i < SIZE_OF_CLUSTER; i++)
         {
-            displays[i] = current;
+            displays[i] = current * 3;
             if (i != SIZE_OF_CLUSTER - 1)
             {
                 slices[i * 2 + 0] = current;
-                // !(!(remainder ^ 0)) compares remainder and 0
+                // This !(!(remainder ^ 0)) compares remainder and 0
                 // if != returns 1, if not 0
                 current = current + slice + !(!(remainder ^ 0));
                 slices[i * 2 + 1] = current;
@@ -298,7 +296,8 @@ int main(int argc, char const *argv[])
             {
                 remainder--;
             }
-            rcvcounts[i] = slices[i * 2 + 1] - slices[i * 2 + 0];
+            // Multiply by 3 -> RGB.
+            rcvcounts[i] = (slices[i * 2 + 1] - slices[i * 2 + 0]) * 3;
         }
     }
 
@@ -306,20 +305,21 @@ int main(int argc, char const *argv[])
     range = (int *)malloc(2 * sizeof(int));
     // Scatter the ranges
     MPI_Scatter(slices, 2, MPI_INT, range, 2, MPI_INT, ROOT, MPI_COMM_WORLD);
-    printf("%d, %d\n", range[0], range[1]);
+    printf("\n%d, %d\n", range[0], range[1]);
 
     // Since we have triples (RGB), multiply local_range * 3
     int *partial_buffer;
     int local_range = range[1] - range[0];
     int partial_buffer_size = 3 * local_range;
-    partial_buffer = (int *)(malloc(partial_buffer_size * sizeof(int));
-    for (int r = range[0]; r < range[1]; r--)
+    partial_buffer = (int *)(malloc(partial_buffer_size * sizeof(int)));
+    // 0 to 59999
+    int buffer_offset = 0;
+    for (int r = range[0]; r < range[1]; r++)
     {
         // Extract i and j from r
-        int i = (int)(r / IMAGE_WIDTH);
-        int j = r % IMAGE_WIDTH;
+        int j = (int)(r / IMAGE_WIDTH);
+        int i = r % IMAGE_WIDTH;
 
-        // fflush(stderr);
         colour_t pixel = colour(0, 0, 0);
         for (int s = 0; s < number_of_samples; ++s)
         {
@@ -330,13 +330,19 @@ int main(int argc, char const *argv[])
             vec3_add(&pixel, ray_colour(&ray, world, skybox, CHILD_RAYS));
         }
         // Add result to partial_buffer
-        rt_write_colour(partial_buffer, r, pixel, number_of_samples);
+        rt_write_colour(partial_buffer, buffer_offset, pixel, number_of_samples);
+        buffer_offset = buffer_offset + 1;
     }
 
     int complete_buffer_size = total_image_size * 3;
-    int *complete_buffer = (int *)(malloc(complete_buffer_size) * sizeof(int));
+    int *complete_buffer = (int *)(malloc(complete_buffer_size * sizeof(int)));
     // Gather partial_buffer from all processes
-    MPI_Gatherv(partial_buffer, partial_buffer_size, MPI_INT, complete_buffer, rcvcounts, displays, MPI_INT, ROOT, MPI_COMM_WORLD);
+    // printf("\n%d\n", rcvcounts[0]);
+    // printf("\n%d\n", rcvcounts[1]);
+    // printf("\n%d\n", displays[0]);
+    // printf("\n%d\n", displays[1]);
+    MPI_Gatherv(partial_buffer, partial_buffer_size, MPI_INT, complete_buffer, rcvcounts, displays, MPI_INT, ROOT,
+                MPI_COMM_WORLD);
 
     if (PROCESS_RANK == ROOT)
     {
@@ -352,10 +358,18 @@ int main(int argc, char const *argv[])
 
         // Write final results to file
         fprintf(out_file, "P3\n%d %d\n255\n", IMAGE_WIDTH, IMAGE_HEIGHT);
-        for (int i = 0; i < complete_buffer_size / 3; i++)
+        // Since we execute differently, we changed the way the result is written
+        for (int i = IMAGE_HEIGHT - 1; i >= 0; i--)
         {
-            fprintf(out_file, "%d %d %d\n", complete_buffer[i * 3], complete_buffer[i * 3 + 1],
-                    complete_buffer[i * 3 + 2]);
+            // get row
+            int idx = i * IMAGE_WIDTH;
+            for (int j = 0; j < IMAGE_WIDTH; j++)
+            {
+                // get equivalent index in complete_buffer
+                // Store row by row starting from last
+                fprintf(out_file, "%d %d %d\n", complete_buffer[(idx + j) * 3 + 0], complete_buffer[(idx + j) * 3 + 1],
+                        complete_buffer[(idx + j) * 3 + 2]);
+            }
         }
     }
 

@@ -6,6 +6,9 @@ set(CMAKE_C_STANDARD 11)
 
 include(CheckLibraryExists)
 
+find_package(MPI)
+include_directories(SYSTEM ${MPI_INCLUDE_PATH})
+
 CHECK_LIBRARY_EXISTS(m cos "" HAVE_LIB_M)
 if (HAVE_LIB_M)
     set(EXTRA_LIBS ${EXTRA_LIBS} m)
@@ -44,4 +47,4 @@ add_custom_command(TARGET ray_tracing_one_week PRE_BUILD
 
 
 target_include_directories(ray_tracing_one_week PRIVATE ./ materials hittables textures deps)
-target_link_libraries(ray_tracing_one_week ${EXTRA_LIBS})
+target_link_libraries(ray_tracing_one_week ${EXTRA_LIBS} ${MPI_C_LIBRARIES})
