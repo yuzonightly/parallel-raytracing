@@ -3,6 +3,7 @@
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
+ * mpicc test.c -o output && mpirun -np 4 output
  */
 
 #include <stdio.h>
@@ -14,6 +15,7 @@
 #include <string.h>
 #include <scenes/rt_scenes.h>
 #include <assert.h>
+#include <mpi.h>
 
 static void show_usage(const char *program_name, int err);
 
@@ -42,6 +44,31 @@ static colour_t ray_colour(const ray_t *ray, const rt_hittable_list_t *list, rt_
 
 int main(int argc, char const *argv[])
 {
+
+    // MPI
+    int PROCESS_RANK, SIZE_OF_CLUSTER;
+    int ROOT = 0;
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &SIZE_OF_CLUSTER);
+    MPI_Comm_rank(MPI_COMM_WORLD, &PROCESS_RANK);
+
+    // Constants
+    const double ASPECT_RATIO = 3.0 / 2.0;
+    const int IMAGE_WIDTH = 300;
+    const int IMAGE_HEIGHT = (int)(IMAGE_WIDTH / ASPECT_RATIO);
+    const int CHILD_RAYS = 50;
+
+    // ROOT parameters
+    FILE *out_file = stdout;
+
+    // Parameters
+    long number_of_samples;
+    rt_camera_t *camera;
+    // World
+    rt_hittable_list_t *world = NULL;
+    rt_skybox_t *skybox = NULL;
+
     const char *number_of_samples_str = NULL;
     const char *scene_id_str = NULL;
     const char *file_name = NULL;
@@ -100,7 +127,7 @@ int main(int argc, char const *argv[])
     }
 
     // Parse resulting parameters
-    long number_of_samples = 1000;
+    number_of_samples = 1000;
     if (NULL != number_of_samples_str)
     {
         char *end_ptr = NULL;
@@ -130,20 +157,10 @@ int main(int argc, char const *argv[])
         fprintf(stderr, "\t- file_name:         %s\n", file_name);
     }
 
-    // Image parameters
-    const double ASPECT_RATIO = 3.0 / 2.0;
-    const int IMAGE_WIDTH = 300;
-    const int IMAGE_HEIGHT = (int)(IMAGE_WIDTH / ASPECT_RATIO);
-    const int CHILD_RAYS = 50;
-
     // Declare Camera parameters
     point3_t look_from, look_at;
     vec3_t up = point3(0, 1, 0);
     double focus_distance = 10.0, aperture = 0.0, vertical_fov = 40.0;
-
-    // World
-    rt_hittable_list_t *world = NULL;
-    rt_skybox_t *skybox = NULL;
 
     // Select a scene from a pre-defined one
     switch (scene_id)
@@ -243,37 +260,105 @@ int main(int argc, char const *argv[])
     rt_camera_t *camera =
         rt_camera_new(look_from, look_at, up, vertical_fov, ASPECT_RATIO, aperture, focus_distance, 0.0, 1.0);
 
-    FILE *out_file = stdout;
-    if (NULL != file_name)
+    int *range, *slices;
+    int total_image_size = IMAGE_HEIGHT * IMAGE_WIDTH;
+    int *rcvcounts;
+    int *displays;
+    if (PROCESS_RANK == ROOT)
     {
-        out_file = fopen(file_name, "w");
-        if (NULL == out_file)
-        {
-            fprintf(stderr, "Fatal error: Unable to open file %s: %s", file_name, strerror(errno));
-            goto cleanup;
-        }
-    }
+        int slice = total_image_size / SIZE_OF_CLUSTER;
+        // We use remainder to better distribute the ranges
+        int remainder = total_image_size % SIZE_OF_CLUSTER;
 
-    // Render
-    fprintf(out_file, "P3\n%d %d\n255\n", IMAGE_WIDTH, IMAGE_HEIGHT);
-    for (int j = IMAGE_HEIGHT - 1; j >= 0; --j)
-    {
-        fprintf(stderr, "\rScanlines remaining: %d", j);
-        fflush(stderr);
-        for (int i = 0; i < IMAGE_WIDTH; ++i)
+        // Used in MPI_Gatherv
+        rcvcounts = (int *)(malloc(SIZE_OF_CLUSTER * sizeof(int)));
+        // Used in MPI_Gatherv
+        displays = (int *)(malloc(SIZE_OF_CLUSTER * sizeof(int)));
+
+        // Create array with ranges.
+        slices = (int *)malloc((2 * SIZE_OF_CLUSTER) * sizeof(int));
+        int current = 0;
+        for (int i = 0; i < SIZE_OF_CLUSTER; i++)
         {
-            colour_t pixel = colour(0, 0, 0);
-            for (int s = 0; s < number_of_samples; ++s)
+            displays[i] = current;
+            if (i != SIZE_OF_CLUSTER - 1)
             {
-                double u = (double)(i + rt_random_double(0, 1)) / (IMAGE_WIDTH - 1);
-                double v = (double)(j + rt_random_double(0, 1)) / (IMAGE_HEIGHT - 1);
-
-                ray_t ray = rt_camera_get_ray(camera, u, v);
-                vec3_add(&pixel, ray_colour(&ray, world, skybox, CHILD_RAYS));
+                slices[i * 2 + 0] = current;
+                // !(!(remainder ^ 0)) compares remainder and 0
+                // if != returns 1, if not 0
+                current = current + slice + !(!(remainder ^ 0));
+                slices[i * 2 + 1] = current;
             }
-            rt_write_colour(out_file, pixel, number_of_samples);
+            else
+            {
+                slices[i * 2 + 0] = current;
+                slices[i * 2 + 1] = total_image_size;
+            }
+            if (remainder > 0)
+            {
+                remainder--;
+            }
+            rcvcounts[i] = slices[i * 2 + 1] - slices[i * 2 + 0];
         }
     }
+
+    // range is a tuple containing [initial_index, final_index]
+    range = (int *)malloc(2 * sizeof(int));
+    // Scatter the ranges
+    MPI_Scatter(slices, 2, MPI_INT, range, 2, MPI_INT, ROOT, MPI_COMM_WORLD);
+    printf("%d, %d\n", range[0], range[1]);
+
+    // Since we have triples (RGB), multiply local_range * 3
+    int *partial_buffer;
+    int local_range = range[1] - range[0];
+    int partial_buffer_size = 3 * local_range;
+    partial_buffer = (int *)(malloc(partial_buffer_size * sizeof(int));
+    for (int r = range[0]; r < range[1]; r--)
+    {
+        // Extract i and j from r
+        int i = (int)(r / IMAGE_WIDTH);
+        int j = r % IMAGE_WIDTH;
+
+        // fflush(stderr);
+        colour_t pixel = colour(0, 0, 0);
+        for (int s = 0; s < number_of_samples; ++s)
+        {
+            double u = (double)(i + rt_random_double(0, 1)) / (IMAGE_WIDTH - 1);
+            double v = (double)(j + rt_random_double(0, 1)) / (IMAGE_HEIGHT - 1);
+
+            ray_t ray = rt_camera_get_ray(camera, u, v);
+            vec3_add(&pixel, ray_colour(&ray, world, skybox, CHILD_RAYS));
+        }
+        // Add result to partial_buffer
+        rt_write_colour(partial_buffer, r, pixel, number_of_samples);
+    }
+
+    int complete_buffer_size = total_image_size * 3;
+    int *complete_buffer = (int *)(malloc(complete_buffer_size) * sizeof(int));
+    // Gather partial_buffer from all processes
+    MPI_Gatherv(partial_buffer, partial_buffer_size, MPI_INT, complete_buffer, rcvcounts, displays, MPI_INT, ROOT, MPI_COMM_WORLD);
+
+    if (PROCESS_RANK == ROOT)
+    {
+        if (NULL != file_name)
+        {
+            out_file = fopen(file_name, "w");
+            if (NULL == out_file)
+            {
+                fprintf(stderr, "Fatal error: Unable to open file %s: %s", file_name, strerror(errno));
+                goto cleanup;
+            }
+        }
+
+        // Write final results to file
+        fprintf(out_file, "P3\n%d %d\n255\n", IMAGE_WIDTH, IMAGE_HEIGHT);
+        for (int i = 0; i < complete_buffer_size / 3; i++)
+        {
+            fprintf(out_file, "%d %d %d\n", complete_buffer[i * 3], complete_buffer[i * 3 + 1],
+                    complete_buffer[i * 3 + 2]);
+        }
+    }
+
     fprintf(stderr, "\nDone\n");
 cleanup:
     // Cleanup
@@ -281,6 +366,7 @@ cleanup:
     rt_camera_delete(camera);
     rt_skybox_delete(skybox);
 
+    MPI_Finalize();
     return EXIT_SUCCESS;
 }
 
@@ -290,11 +376,14 @@ static void show_usage(const char *program_name, int err)
     fprintf(stderr, "%s [-s|--samples N] [--scene SCENE] [-v|--verbose] [output_file_name]\n", program_name);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "\t-s | --samples      <int>       Number of rays to cast for each pixel\n");
-    fprintf(stderr, "\t--scene             <string>    ID of the scene to render. List of available scenes is printed below.\n");
+    fprintf(
+        stderr,
+        "\t--scene             <string>    ID of the scene to render. List of available scenes is printed below.\n");
     fprintf(stderr, "\t-v | --verbose                  Enable verbose output\n");
     fprintf(stderr, "\t-h                              Show this message and exit\n");
     fprintf(stderr, "Positional arguments:\n");
-    fprintf(stderr, "\toutput_file_name                Name of the output file. Outputs image to console if not specified.\n");
+    fprintf(stderr,
+            "\toutput_file_name                Name of the output file. Outputs image to console if not specified.\n");
     fprintf(stderr, "Available scenes:\n");
     rt_scene_print_scenes_info(stderr);
 
