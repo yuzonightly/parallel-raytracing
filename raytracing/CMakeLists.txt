@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.17)
 project(ray_tracing_one_week C)
 
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_FLAGS "-pthread")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}" CACHE STRING "compiler flags" FORCE)
 
 include(CheckLibraryExists)
 
