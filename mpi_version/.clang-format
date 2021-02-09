@@ -1,0 +1,18 @@
+BasedOnStyle: Microsoft
+IndentWidth: 4
+ColumnLimit: 120
+UseTab: Never
+
+Language: Cpp
+AlignAfterOpenBracket: Align
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBraces: Allman
+BreakStringLiterals: false
+IndentCaseLabels: true
+IncludeBlocks: Preserve
+PointerAlignment: Right
+SortIncludes: false
