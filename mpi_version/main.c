@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  * mpicc test.c -o output && mpirun -np 4 output
  */
-// 44922 160 177 194
+
 #include <stdio.h>
 
 #include "hittables/rt_hittable_list.h"
@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &SIZE_OF_CLUSTER);
-    MPI_Comm_rank(MPI_COMM_WORLD, &PROCESS_RANK); 
+    MPI_Comm_rank(MPI_COMM_WORLD, &PROCESS_RANK);
 
     // Constants
     const double ASPECT_RATIO = 3.0 / 2.0;
@@ -305,13 +305,13 @@ int main(int argc, char *argv[])
     range = (int *)malloc(2 * sizeof(int));
     // Scatter the ranges
     MPI_Scatter(slices, 2, MPI_INT, range, 2, MPI_INT, ROOT, MPI_COMM_WORLD);
-    printf("\nProcess %d range: %d, %d\n", PROCESS_RANK, range[0], range[1]);
+    // printf("\nProcess %d range: %d, %d\n", PROCESS_RANK, range[0], range[1]);
     // Since we have triples (RGB), multiply local_range * 3
     int *partial_buffer;
     int local_range = range[1] - range[0];
     int partial_buffer_size = 3 * local_range;
     partial_buffer = (int *)(malloc(partial_buffer_size * sizeof(int)));
-    // 0 to 59999
+
     int buffer_offset = 0;
     for (int r = range[0]; r < range[1]; r++)
     {
@@ -333,7 +333,7 @@ int main(int argc, char *argv[])
         buffer_offset = buffer_offset + 1;
     }
 
-    printf("\nHotspot END for process RANK: %d.", PROCESS_RANK);
+    // printf("\nHotspot END for process RANK: %d.", PROCESS_RANK);
 
     int complete_buffer_size = total_image_size * 3;
     int *complete_buffer = (int *)(malloc(complete_buffer_size * sizeof(int)));
@@ -370,7 +370,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    fprintf(stderr, "\nDone\n");
+    // fprintf(stderr, "\nDone\n");
 cleanup:
     // Cleanup
     rt_hittable_list_deinit(world);

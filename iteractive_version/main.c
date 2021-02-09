@@ -258,8 +258,8 @@ int main(int argc, char const *argv[])
     fprintf(out_file, "P3\n%d %d\n255\n", IMAGE_WIDTH, IMAGE_HEIGHT);
     for (int j = IMAGE_HEIGHT - 1; j >= 0; --j)
     {
-        fprintf(stderr, "\rScanlines remaining: %d", j);
-        fflush(stderr);
+        // fprintf(stderr, "\rScanlines remaining: %d", j);
+        // fflush(stderr);
         for (int i = 0; i < IMAGE_WIDTH; ++i)
         {
             colour_t pixel = colour(0, 0, 0);
@@ -274,7 +274,7 @@ int main(int argc, char const *argv[])
             rt_write_colour(out_file, pixel, number_of_samples);
         }
     }
-    fprintf(stderr, "\nDone\n");
+    // fprintf(stderr, "\nDone\n");
 cleanup:
     // Cleanup
     rt_hittable_list_deinit(world);

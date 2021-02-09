@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  * mpicc test.c -o output && mpirun -np 4 output
  */
-// 44922 160 177 194
+
 #include <stdio.h>
 
 #include "hittables/rt_hittable_list.h"
@@ -18,8 +18,6 @@
 #include <mpi.h>
 #include <pthread.h>
 #include <string.h>
-
-// thread
 
 #define IMAGE_WIDTH 300
 #define ASPECT_RATIO 1.5f // 3.0 / 2.0
@@ -34,7 +32,6 @@ long number_of_samples = 1000;
 rt_camera_t *camera;
 rt_hittable_list_t *world = NULL;
 rt_skybox_t *skybox = NULL;
-// int child_rays;
 
 int start_range;
 int end_range;
@@ -327,10 +324,9 @@ int main(int argc, char *argv[])
     range = (int *)malloc(2 * sizeof(int));
     // Scatter the ranges
     MPI_Scatter(slices, 2, MPI_INT, range, 2, MPI_INT, ROOT, MPI_COMM_WORLD);
-    printf("\nProcess %d range: %d, %d\n", PROCESS_RANK, range[0], range[1]);
+    // printf("\nProcess %d range: %d, %d\n", PROCESS_RANK, range[0], range[1]);
 
-    // hybrid: this was local, now its global
-    // this will house all the values, see the thread function for more info, use mutex
+    // hybrid: partial_buffer is shared between threads
     int local_range = range[1] - range[0];
     int partial_buffer_size = 3 * local_range;
     partial_buffer = (int *)(malloc(partial_buffer_size * sizeof(int)));
@@ -351,7 +347,7 @@ int main(int argc, char *argv[])
         pthread_join(threads[i], NULL);
     }
 
-    printf("\nHotspot ENDED for process RANK: %d.", PROCESS_RANK);
+    // printf("\nHotspot ENDED for process RANK: %d.", PROCESS_RANK);
 
     // Gather partial_buffer from all processes
     int complete_buffer_size = total_image_size * 3;
@@ -389,7 +385,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    fprintf(stderr, "\nDone\n");
+    // fprintf(stderr, "\nDone\n");
 cleanup:
     // Cleanup
     rt_hittable_list_deinit(world);
@@ -469,8 +465,7 @@ void *cast_ray(void *id)
     pthread_mutex_lock(&BUFFER_MUTEX);
     // in the end the thread_local_buffer must be written to the local_buffer. Use mutex for this
     // void *memcpy(void *dest, const void * src, size_t n)
-
-    printf("\nThread %d from PROCESS %d is Writing from %d\n", thread_id, process_rank, start * 3);
+    // printf("\nThread %d from PROCESS %d is Writing from %d\n", thread_id, process_rank, start * 3);
     memcpy(&partial_buffer[(start - start_range) * 3], thread_local_buffer, local_range * 3 * 4);
 
     pthread_mutex_unlock(&BUFFER_MUTEX);
