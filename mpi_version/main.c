@@ -333,8 +333,6 @@ int main(int argc, char *argv[])
         buffer_offset = buffer_offset + 1;
     }
 
-    // printf("\nHotspot END for process RANK: %d.", PROCESS_RANK);
-
     int complete_buffer_size = total_image_size * 3;
     int *complete_buffer = (int *)(malloc(complete_buffer_size * sizeof(int)));
     // Gather partial_buffer from all processes
@@ -358,7 +356,7 @@ int main(int argc, char *argv[])
         // Since we execute differently, we changed the way the result is written
         for (int i = IMAGE_HEIGHT - 1; i >= 0; i--)
         {
-            // get row
+            // get row (start from last)
             int idx = i * IMAGE_WIDTH;
             for (int j = 0; j < IMAGE_WIDTH; j++)
             {
@@ -370,7 +368,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    // fprintf(stderr, "\nDone\n");
 cleanup:
     // Cleanup
     rt_hittable_list_deinit(world);

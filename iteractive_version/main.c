@@ -258,8 +258,6 @@ int main(int argc, char const *argv[])
     fprintf(out_file, "P3\n%d %d\n255\n", IMAGE_WIDTH, IMAGE_HEIGHT);
     for (int j = IMAGE_HEIGHT - 1; j >= 0; --j)
     {
-        // fprintf(stderr, "\rScanlines remaining: %d", j);
-        // fflush(stderr);
         for (int i = 0; i < IMAGE_WIDTH; ++i)
         {
             colour_t pixel = colour(0, 0, 0);
@@ -274,7 +272,7 @@ int main(int argc, char const *argv[])
             rt_write_colour(out_file, pixel, number_of_samples);
         }
     }
-    // fprintf(stderr, "\nDone\n");
+
 cleanup:
     // Cleanup
     rt_hittable_list_deinit(world);
@@ -290,11 +288,14 @@ static void show_usage(const char *program_name, int err)
     fprintf(stderr, "%s [-s|--samples N] [--scene SCENE] [-v|--verbose] [output_file_name]\n", program_name);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "\t-s | --samples      <int>       Number of rays to cast for each pixel\n");
-    fprintf(stderr, "\t--scene             <string>    ID of the scene to render. List of available scenes is printed below.\n");
+    fprintf(
+        stderr,
+        "\t--scene             <string>    ID of the scene to render. List of available scenes is printed below.\n");
     fprintf(stderr, "\t-v | --verbose                  Enable verbose output\n");
     fprintf(stderr, "\t-h                              Show this message and exit\n");
     fprintf(stderr, "Positional arguments:\n");
-    fprintf(stderr, "\toutput_file_name                Name of the output file. Outputs image to console if not specified.\n");
+    fprintf(stderr,
+            "\toutput_file_name                Name of the output file. Outputs image to console if not specified.\n");
     fprintf(stderr, "Available scenes:\n");
     rt_scene_print_scenes_info(stderr);
 

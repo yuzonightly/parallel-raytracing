@@ -18,21 +18,22 @@
 #include <math.h>
 
 #define IMAGE_WIDTH 300
-#define ASPECT_RATIO 1.5f // 3.0 / 2.0
-#define IMAGE_HEIGHT 200  // IMAGE_WIDTH / ASPECT_RATIO
+#define ASPECT_RATIO 1.5f
+#define IMAGE_HEIGHT 200
 #define CHILD_RAYS 50
-#define N_THREADS 32
-
-pthread_mutex_t threads_mutex[N_THREADS];
-pthread_t threads[N_THREADS];
 
 long number_of_samples = 1000;
-int BLOCK_SIZE_THREAD;
 rt_camera_t *camera;
-rt_hittable_list_t *world;
+rt_hittable_list_t *world = NULL;
 rt_skybox_t *skybox;
 int child_rays;
 FILE *out_file;
+
+// Threads
+long N_THREADS = 1;
+pthread_mutex_t *threads_mutex;
+pthread_t *threads;
+int BLOCK_SIZE_THREAD;
 
 void *get_image_pixels();
 
@@ -63,11 +64,11 @@ static colour_t ray_colour(const ray_t *ray, const rt_hittable_list_t *list, rt_
 
 int main(int argc, char const *argv[])
 {
-    BLOCK_SIZE_THREAD = (int)floor((IMAGE_HEIGHT / N_THREADS));
     out_file = stdout;
     const char *number_of_samples_str = NULL;
     const char *scene_id_str = NULL;
     const char *file_name = NULL;
+    const char *number_of_threads = NULL;
     bool verbose = false;
 
     // Parse console arguments
@@ -91,6 +92,16 @@ int main(int argc, char const *argv[])
                 show_usage(argv[0], EXIT_FAILURE);
             }
             scene_id_str = argv[++i];
+            continue;
+        }
+        else if (0 == strcmp(argv[i], "--threads"))
+        {
+            if (i + 1 >= argc)
+            {
+                fprintf(stderr, "Fatal error: Argument '%s' doesn't have a value\n", argv[i]);
+                // show_usage(argv[0], EXIT_FAILURE);
+            }
+            number_of_threads = argv[++i];
             continue;
         }
         else if (0 == strcmp(argv[i], "-v") || 0 == strcmp(argv[i], "--verbose"))
@@ -268,6 +279,13 @@ int main(int argc, char const *argv[])
         }
     }
 
+    char *e_ptr = NULL;
+    N_THREADS = strtol(number_of_threads, &e_ptr, 10);
+    // fprintf(stderr, "number threads: %ld", N_THREADS);
+    threads = (pthread_t *)malloc(N_THREADS * sizeof(pthread_t));
+    threads_mutex = (pthread_mutex_t *)malloc(N_THREADS * sizeof(pthread_mutex_t));
+    BLOCK_SIZE_THREAD = (int)floor((IMAGE_HEIGHT / N_THREADS));
+
     // initialize threads
     for (int i = 0; i < N_THREADS; i++)
     {
@@ -287,7 +305,6 @@ int main(int argc, char const *argv[])
         pthread_join(threads[i], NULL);
     }
 
-    fprintf(stderr, "\nDone\n");
 cleanup:
     // Cleanup
     rt_hittable_list_deinit(world);
@@ -328,13 +345,13 @@ void *get_image_pixels(void *thread_number)
     }
     int local_pixels_size = ((height_end - height_start) + 1) * IMAGE_WIDTH;
     colour_t local_pixels[local_pixels_size];
-    fprintf(stderr, "Thread number %d \t height_start, height_end %d, %d started to process\n", thread_num,
-            height_start, height_end);
+
+    // fprintf(stderr, "Thread number %d \t height_start, height_end %d, %d started processing\n", thread_num,
+    //         height_start, height_end);
+
     int local_pixels_index = 0;
     for (int j = height_end; j >= height_start; --j)
     {
-        // fprintf(stderr, "\rScanlines remaining: %d", j);
-        fflush(stderr);
         for (int i = 0; i < IMAGE_WIDTH; ++i)
         {
             colour_t pixel = colour(0, 0, 0);
@@ -351,20 +368,16 @@ void *get_image_pixels(void *thread_number)
             local_pixels_index++;
         }
     }
-    fprintf(stderr, "Thread number %d \t height_start, height_end %d, %d end processing\n", thread_num, height_start,
-            height_end);
 
     pthread_mutex_lock(&threads_mutex[thread_num]);
-    fprintf(stderr, "Thread number %d \t start to write \n", thread_num);
+    // fprintf(stderr, "Thread number %d \t started writing \n", thread_num);
     for (int i = 0; i < local_pixels_index; i++)
     {
         rt_write_colour(out_file, local_pixels[i], number_of_samples);
     }
-    fprintf(stderr, "Thread number %d \t end to write \n", thread_num);
 
     if (thread_num != (N_THREADS - 1))
     {
-        fprintf(stderr, "Thread number %d \t releasing thread %d \n", thread_num, thread_num + 1);
         pthread_mutex_unlock(&threads_mutex[thread_num + 1]);
     }
     pthread_exit(NULL);

@@ -20,13 +20,13 @@
 #include <string.h>
 
 #define IMAGE_WIDTH 300
-#define ASPECT_RATIO 1.5f // 3.0 / 2.0
-#define IMAGE_HEIGHT 200  // IMAGE_WIDTH / ASPECT_RATIO
+#define ASPECT_RATIO 1.5f
+#define IMAGE_HEIGHT 200
 #define CHILD_RAYS 50
 
-#define N_THREADS 3
+int N_THREADS = 1;
 pthread_mutex_t BUFFER_MUTEX;
-pthread_t threads[N_THREADS];
+pthread_t *threads;
 
 long number_of_samples = 1000;
 rt_camera_t *camera;
@@ -91,6 +91,7 @@ int main(int argc, char *argv[])
     const char *number_of_samples_str = NULL;
     const char *scene_id_str = NULL;
     const char *file_name = NULL;
+    const char *number_of_threads = NULL;
     bool verbose = false;
 
     // Parse console arguments
@@ -114,6 +115,16 @@ int main(int argc, char *argv[])
                 show_usage(argv[0], EXIT_FAILURE);
             }
             scene_id_str = argv[++i];
+            continue;
+        }
+        else if (0 == strcmp(argv[i], "--threads"))
+        {
+            if (i + 1 >= argc)
+            {
+                fprintf(stderr, "Fatal error: Argument '%s' doesn't have a value\n", argv[i]);
+                show_usage(argv[0], EXIT_FAILURE);
+            }
+            number_of_threads = argv[++i];
             continue;
         }
         else if (0 == strcmp(argv[i], "-v") || 0 == strcmp(argv[i], "--verbose"))
@@ -326,7 +337,7 @@ int main(int argc, char *argv[])
     MPI_Scatter(slices, 2, MPI_INT, range, 2, MPI_INT, ROOT, MPI_COMM_WORLD);
     // printf("\nProcess %d range: %d, %d\n", PROCESS_RANK, range[0], range[1]);
 
-    // hybrid: partial_buffer is shared between threads
+    // partial_buffer is shared between threads
     int local_range = range[1] - range[0];
     int partial_buffer_size = 3 * local_range;
     partial_buffer = (int *)(malloc(partial_buffer_size * sizeof(int)));
@@ -334,6 +345,10 @@ int main(int argc, char *argv[])
     // all threads will access these values
     start_range = range[0];
     end_range = range[1];
+
+    char *e_ptr = NULL;
+    N_THREADS = strtol(number_of_threads, &e_ptr, 10);
+    threads = (pthread_t *)malloc(N_THREADS * sizeof(pthread_t));
 
     // initialize threads
     for (int i = 0; i < N_THREADS; i++)
@@ -346,8 +361,6 @@ int main(int argc, char *argv[])
     {
         pthread_join(threads[i], NULL);
     }
-
-    // printf("\nHotspot ENDED for process RANK: %d.", PROCESS_RANK);
 
     // Gather partial_buffer from all processes
     int complete_buffer_size = total_image_size * 3;
@@ -373,7 +386,7 @@ int main(int argc, char *argv[])
         // Since we execute differently, we changed the way the result is written
         for (int i = IMAGE_HEIGHT - 1; i >= 0; i--)
         {
-            // get row
+            // get row (start from last)
             int idx = i * IMAGE_WIDTH;
             for (int j = 0; j < IMAGE_WIDTH; j++)
             {
@@ -385,7 +398,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    // fprintf(stderr, "\nDone\n");
 cleanup:
     // Cleanup
     rt_hittable_list_deinit(world);
@@ -463,9 +475,8 @@ void *cast_ray(void *id)
     }
 
     pthread_mutex_lock(&BUFFER_MUTEX);
-    // in the end the thread_local_buffer must be written to the local_buffer. Use mutex for this
+    // in the end the thread_local_buffer must be written to the local_buffer
     // void *memcpy(void *dest, const void * src, size_t n)
-    // printf("\nThread %d from PROCESS %d is Writing from %d\n", thread_id, process_rank, start * 3);
     memcpy(&partial_buffer[(start - start_range) * 3], thread_local_buffer, local_range * 3 * 4);
 
     pthread_mutex_unlock(&BUFFER_MUTEX);
