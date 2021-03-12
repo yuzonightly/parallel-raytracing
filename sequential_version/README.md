@@ -8,7 +8,7 @@ routines. This is far from optimal but should work.
 
 Here's the sample scene from the cover of the book:
 
-![Sample image](/images/basic_rendering.jpg)
+![Sample image](./images/basic_rendering.jpg)
 
 Apart from core raytracer, I've decided to add some other features:
 
@@ -19,7 +19,7 @@ Apart from core raytracer, I've decided to add some other features:
   located in the [lighting-test](https://github.com/Morozov-5F/raytracing-weekend/tree/lighting-test) branch. Here's how
   the render looks:
 
-![Image with lighting](/images/lighting_sample.jpg)
+![Image with lighting](./images/lighting_sample.jpg)
 
 I've selected C because I wanted some challenge and I think I got some. I decided to make vector and ray routines
 completely inlined to remove some overhead from function calls. I could have gone with macros but I thought the inlines
