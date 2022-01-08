@@ -6,7 +6,7 @@ Goal: use PThreads and MPI to parallelize a simple raytracing algorithm.
 
 ### hybrid_version
 
-```console
+```bash
 mkdir build && cd build
 cmake ..
 make
@@ -15,7 +15,7 @@ mpirun -np [number of processes] ./ray_tracing_one_week --threads [number of thr
 
 ### mpi_version
 
-```console
+```bash
 mkdir build && cd build
 cmake ..
 make
@@ -24,7 +24,7 @@ mpirun -np [number of processes] ./ray_tracing_one_week --scene earth earth.ppm
 
 ### sequential_version
 
-```console
+```bash
 mkdir build && cd build
 cmake ..
 make
@@ -33,7 +33,7 @@ make
 
 ### thread_version
 
-```console
+```bash
 mkdir build && cd build
 cmake ..
 make
