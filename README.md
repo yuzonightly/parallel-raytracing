@@ -2,7 +2,7 @@
 
 Goal: use PThreads and MPI to parallelize a simple raytracing algorithm.
 
-## To execute
+## Run
 
 ### hybrid_version
 
@@ -10,7 +10,7 @@ Goal: use PThreads and MPI to parallelize a simple raytracing algorithm.
 mkdir build && cd build
 cmake ..
 make
-mpirun -np [number of processes] ./ray_tracing_one_week --threads [number of threads] --scene earth earth.ppm
+mpirun -np <number of processes> ./ray_tracing_one_week --threads <number of threads> --scene earth earth.ppm
 ```
 
 ### mpi_version
@@ -19,7 +19,7 @@ mpirun -np [number of processes] ./ray_tracing_one_week --threads [number of thr
 mkdir build && cd build
 cmake ..
 make
-mpirun -np [number of processes] ./ray_tracing_one_week --scene earth earth.ppm
+mpirun -np <number of processes> ./ray_tracing_one_week --scene earth earth.ppm
 ```
 
 ### sequential_version
@@ -37,5 +37,5 @@ make
 mkdir build && cd build
 cmake ..
 make
-./ray_tracing_one_week --threads [number of threads] --scene earth earth.ppm
+./ray_tracing_one_week --threads <number of threads> --scene earth earth.ppm
 ```
